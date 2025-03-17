@@ -8,8 +8,8 @@ const app = express();
 
 // Middleware
 app.use(cors());
-app.use(bodyParser.urlencoded({ extended: false })); // Pour form data
-app.use(bodyParser.json()); // Pour JSON optionnel
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(bodyParser.json());
 
 // Connexion MongoDB
 mongoose
@@ -36,7 +36,14 @@ const exerciseSchema = new Schema({
 });
 const Exercise = mongoose.model("Exercise", exerciseSchema);
 
-// Routes
+// Route racine
+app.get("/", (req, res) => {
+  res.send(
+    "Exercise Tracker API - Use /api/users and /api/users/:_id/exercises"
+  );
+});
+
+// Routes API
 app.post("/api/users", async (req, res) => {
   try {
     const user = new User({ username: req.body.username });
@@ -50,7 +57,7 @@ app.post("/api/users", async (req, res) => {
 
 app.get("/api/users", async (req, res) => {
   try {
-    const users = await User.find({}, "username _id"); // Sélectionne seulement username et _id
+    const users = await User.find({}, "username _id");
     res.json(users);
   } catch (err) {
     console.error("GET /api/users error:", err);
@@ -69,7 +76,7 @@ app.post("/api/users/:_id/exercises", async (req, res) => {
     const exercise = new Exercise({
       userId: user._id,
       description,
-      duration: Number(duration), // Assure que duration est un nombre
+      duration: Number(duration),
       date: date ? new Date(date) : new Date(),
     });
 
@@ -104,7 +111,7 @@ app.get("/api/users/:_id/logs", async (req, res) => {
     }
 
     const exercises = await Exercise.find(filter)
-      .limit(Number(limit) || 0) // 0 signifie pas de limite si non spécifié
+      .limit(Number(limit) || 0)
       .exec();
 
     const log = exercises.map((ex) => ({
