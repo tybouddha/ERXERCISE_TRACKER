@@ -1,52 +1,61 @@
+require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const mongoose = require("mongoose");
 
 const app = express();
-const port = process.env.PORT || 3000;
 
+// Middleware
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: false })); // Pour form data
+app.use(bodyParser.json()); // Pour JSON optionnel
 
-// Connect to MongoDB
-mongoose.connect("mongodb://localhost:27017/exercise-tracker", {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
+// Connexion MongoDB
+mongoose
+  .connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error("MongoDB connection error:", err));
 
-// Define Schemas and Models
+// Schémas et Modèles
 const Schema = mongoose.Schema;
 
 const userSchema = new Schema({
   username: { type: String, required: true, unique: true },
 });
-
 const User = mongoose.model("User", userSchema);
 
 const exerciseSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
   description: { type: String, required: true },
   duration: { type: Number, required: true },
-  date: { type: Date },
+  date: { type: Date, default: Date.now },
 });
-
 const Exercise = mongoose.model("Exercise", exerciseSchema);
 
 // Routes
 app.post("/api/users", async (req, res) => {
   try {
     const user = new User({ username: req.body.username });
-    await user.save();
-    res.json({ username: user.username, _id: user._id });
+    const savedUser = await user.save();
+    res.json({ username: savedUser.username, _id: savedUser._id });
   } catch (err) {
-    res.status(400).send("Username already exists");
+    console.error("POST /api/users error:", err);
+    res.json({ error: "Username already exists" });
   }
 });
 
 app.get("/api/users", async (req, res) => {
-  const users = await User.find({});
-  res.json(users);
+  try {
+    const users = await User.find({}, "username _id"); // Sélectionne seulement username et _id
+    res.json(users);
+  } catch (err) {
+    console.error("GET /api/users error:", err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 app.post("/api/users/:_id/exercises", async (req, res) => {
@@ -55,30 +64,27 @@ app.post("/api/users/:_id/exercises", async (req, res) => {
 
   try {
     const user = await User.findById(userId);
-    if (!user) {
-      return res.status(404).send("User not found");
-    }
+    if (!user) return res.json({ error: "User not found" });
 
     const exercise = new Exercise({
       userId: user._id,
       description,
-      duration,
+      duration: Number(duration), // Assure que duration est un nombre
       date: date ? new Date(date) : new Date(),
     });
 
-    await exercise.save();
+    const savedExercise = await exercise.save();
 
-    const response = {
+    res.json({
       username: user.username,
-      description: exercise.description,
-      duration: exercise.duration,
-      date: exercise.date.toDateString(),
+      description: savedExercise.description,
+      duration: savedExercise.duration,
+      date: savedExercise.date.toDateString(),
       _id: user._id,
-    };
-
-    res.json(response);
+    });
   } catch (err) {
-    res.status(400).send("Error saving exercise");
+    console.error("POST /api/users/:_id/exercises error:", err);
+    res.json({ error: "Invalid data" });
   }
 });
 
@@ -88,15 +94,18 @@ app.get("/api/users/:_id/logs", async (req, res) => {
 
   try {
     const user = await User.findById(_id);
-    if (!user) {
-      return res.status(404).send("User not found");
-    }
+    if (!user) return res.json({ error: "User not found" });
 
     let filter = { userId: user._id };
-    if (from) filter.date = { $gte: new Date(from) };
-    if (to) filter.date = { ...filter.date, $lte: new Date(to) };
+    if (from || to) {
+      filter.date = {};
+      if (from) filter.date.$gte = new Date(from);
+      if (to) filter.date.$lte = new Date(to);
+    }
 
-    const exercises = await Exercise.find(filter).limit(+limit || 500);
+    const exercises = await Exercise.find(filter)
+      .limit(Number(limit) || 0) // 0 signifie pas de limite si non spécifié
+      .exec();
 
     const log = exercises.map((ex) => ({
       description: ex.description,
@@ -111,10 +120,12 @@ app.get("/api/users/:_id/logs", async (req, res) => {
       log,
     });
   } catch (err) {
-    res.status(400).send("Error retrieving logs");
+    console.error("GET /api/users/:_id/logs error:", err);
+    res.json({ error: "Server error" });
   }
 });
 
+// Lancer le serveur
 const listener = app.listen(process.env.PORT || 3000, () => {
   console.log("Your app is listening on port " + listener.address().port);
 });
